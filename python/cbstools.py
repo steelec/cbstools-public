@@ -667,6 +667,74 @@ def write_priors_to_atlas(prior_medians,prior_quart_diffs,atlas_file,new_atlas_f
     print('New atlas file written to: \n' + fp_new.name)
     return fp_new.name
 
+def write_priors_to_atlas_v2(prior_medians,prior_quart_diffs,atlas_file,new_atlas_file,metric_contrast_name):
+    """
+    Write modified priors of given metric contrast to new_atlas
+    Assumes that the ordering of indices and the ordering of the priors are the same
+    (could add prior_weights as well, in future, and use something more structured than just line reading and writing)
+    adds the additional contrast to the end of the file if it does not already exist
+
+    :param prior_medians:           2xN list of prior medians
+    :param prior_quart_diffs:       2xN list of prior quartile differences
+    :param atlas_file:              full path to original atlas file
+    :param new_atlas_file:          full path to new atlas file to be written to
+    :param metric_contrast_name:    name of MGDM metric contrast from atlas_file
+    """
+
+    import pandas as pd
+    contrast_names = get_MGDM_seg_contrast_names(atlas_file)
+    if metric_contrast_name not in contrast_names:
+        #then we need to append this to the end of the file rather than reset the values that existed
+        NEW_CONTRAST = True
+
+    if not NEW_CONTRAST:
+        #get the relevant information from the old atlas file
+        [lut, con_idx, lut_rows, priors] = extract_lut_priors_from_atlas(atlas_file, metric_contrast_name)
+        seg_idxs = lut.Index.get_values() #np vector of index values
+        priors_new = pd.DataFrame.copy(priors)
+
+        #uppdate the priors with the new ones that were passed
+        #TODO: double-check this
+        for idx in lut.Index:
+            priors_new[lut["Index"] == idx] = [prior_medians[seg_idxs == idx], prior_quart_diffs[seg_idxs == idx],1]
+
+        priors_new_string = priors_new.to_csv(sep="\t", header=False, float_format="%.2f")
+        priors_new_string_lines = priors_new_string.split("\n")[0:-1]  # convert to list of lines, cut the last empty '' line
+
+        fp = open(atlas_file)
+        fp_new = open(new_atlas_file, "w")
+        ii = 0
+        # only replace the lines that we changed
+        for i, line in enumerate(fp):
+            if i > con_idx and i < con_idx + lut_rows:
+                fp_new.write(priors_new_string_lines[ii] + "\n")
+                ii += 1
+            else:
+                fp_new.write(line)
+        fp.close()
+        fp_new.close()
+    else: #this is a new contrast, so get the original atlas_file and then append our new priors to it
+        [lut, con_idx, lut_rows, priors] = extract_lut_priors_from_atlas(atlas_file, contrast_names[0])
+        seg_idxs = lut.Index.get_values()  # np vector of index values
+        priors_new = pd.DataFrame.copy(priors)
+        with open(atlas_file) as f: #copy the file to a list so that we can append to it
+            content = f.readlines()
+        if content[-1] is not ' \n': #the space is in the original atlas file, so we keep it
+            content.append(' \n')
+        for idx in lut.Index:
+            priors_new[lut["Index"] == idx] = [prior_medians[seg_idxs == idx], prior_quart_diffs[seg_idxs == idx],1]
+        header = "Intensity Prior:\t" + metric_contrast_name + '\n'
+        priors_new_string = priors_new.to_csv(sep="\t", header=False, float_format="%.2f")
+        priors_new_string_lines = priors_new_string.split("\n")[0:-1]  # convert to list of lines, cut the last empty '' line
+        priors_new_string_lines.insert(0,header)
+        priors_new_string_lines = [theLine + '\n' for theLine in priors_new_string_lines] #append the \n back on
+        content = content + priors_new_string_lines
+        fp_new = open(new_atlas_file, "w")
+        for line in content:
+            fp_new.write(line)
+        fp_new.close()
+    print('New atlas file written to: \n' + fp_new.name)
+    return fp_new.name
 
 def filter_sigmoid(d, x0=0.002, slope=0.0005, output_fname=None):
     """
