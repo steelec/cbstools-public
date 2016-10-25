@@ -110,6 +110,26 @@ def MGDMBrainSegmentation(con1_files, con1_type, con2_files=None, con2_type=None
     print("Sit back and relax, let the magic of algorithms happen...")
     print("")
 
+
+    MGDM_contrast_names = get_MGDM_seg_contrast_names(atlas_file)
+
+    if con1_type not in MGDM_contrast_names:
+        print("You have not chosen a valid contrast ({0}) for your metric_contrast_name, please choose from: ").format(con1_type)
+        print(", ".join(MGDM_contrast_names))
+        return
+    if con2_type is not None and con2_type not in MGDM_contrast_names:
+        print("You have not chosen a valid contrast ({0}) for your metric_contrast_name, please choose from: ").format(con2_type)
+        print(", ".join(MGDM_contrast_names))
+        return
+    if con3_type is not None and con3_type not in MGDM_contrast_names:
+        print("You have not chosen a valid contrast ({0}) for your metric_contrast_name, please choose from: ").format(con3_type)
+        print(", ".join(MGDM_contrast_names))
+        return
+    if con4_type is not None and con4_type not in MGDM_contrast_names:
+        print("You have not chosen a valid contrast ({0}) for your metric_contrast_name, please choose from: ").format(con4_type)
+        print(", ".join(MGDM_contrast_names))
+        return
+
     out_files_seg = []
     out_files_lbl = []
     out_files_ids = []
@@ -135,11 +155,11 @@ def MGDMBrainSegmentation(con1_files, con1_type, con2_files=None, con2_type=None
 
     if not isinstance(con1_files, list):  # make into lists if they were not
         con1_files = [con1_files]
-    if con2_files is not None and not isinstance(con2_files, list):  # make into list of lists
+    if con2_files is not None and not isinstance(con2_files, list):  # make into list
         con2_files = [con2_files]
-    if con3_files is not None and not isinstance(con3_files, list):  # make into list of lists
+    if con3_files is not None and not isinstance(con3_files, list):  # make into list
         con3_files = [con3_files]
-    if con4_files is not None and not isinstance(con4_files, list):  # make into list of lists
+    if con4_files is not None and not isinstance(con4_files, list):  # make into list
         con4_files = [con4_files]
 
     #now we setup the mgdm specfic settings
@@ -626,7 +646,7 @@ def get_MGDM_seg_contrast_names(atlas_file):
     return seg_contrast_names
 
 
-def generate_group_intensity_priors(orig_seg_files,metric_files,metric_contrast_name,
+def generate_group_intensity_priors(orig_seg_files,metric_files,orig_metric_contrast_name,
                                     atlas_file,erosion_iterations=1, min_quart_diff=0.1,
                                     seg_null_value = 0, background_idx = 1,
                                     VERBOSE=False, intermediate_output_dir=None):
@@ -637,7 +657,7 @@ def generate_group_intensity_priors(orig_seg_files,metric_files,metric_contrast_
 
     :param orig_seg_files:          segmentation from other modality
     :param metric_files:            metric files in same space as orig_seg_files
-    :param metric_contrast_name:    name of contrast from priors atlas file, not used currently
+    :param orig_metric_contrast_name:    name of contrast from priors atlas file, not used currently
     :param atlas_file:              prior atlas file (use os.path.join(ATLAS_DIR,DEFAULT_ATLAS))
     :param erosion_iterations:      number of voxels to erode from each segmented region prior to metric extraction
     :param min_quart_diff:          minimum difference between quartiles to accept, otherwise replace with this
@@ -651,12 +671,12 @@ def generate_group_intensity_priors(orig_seg_files,metric_files,metric_contrast_
     import os
     
     MGDM_contrast_names = get_MGDM_seg_contrast_names(atlas_file)
-    if metric_contrast_name not in MGDM_contrast_names:
+    if orig_metric_contrast_name not in MGDM_contrast_names:
         print("You have not chosen a valid contrast for your metric_contrast_name, please choose from: ")
         print(", ".join(MGDM_contrast_names))
         return [None, None]
 
-    [lut,con_idx,lut_rows,priors] = extract_lut_priors_from_atlas(atlas_file, metric_contrast_name)
+    [lut,con_idx,lut_rows,priors] = extract_lut_priors_from_atlas(atlas_file, orig_metric_contrast_name)
     seg_idxs = lut.Index
     all_Ss_priors_median = np.array(seg_idxs) #always put the seg_idxs on top row!
     all_Ss_priors_spread = np.array(seg_idxs)
@@ -715,10 +735,13 @@ def generate_group_intensity_priors(orig_seg_files,metric_files,metric_contrast_
     return all_Ss_priors_median, all_Ss_priors_spread
 
 
-def iteratively_generate_group_intensity_priors(input_filename_type_list, metric_contrast_names, orig_seg_files,
-                                                atlas_file, new_atlas_file_head=None, erosion_iterations=1, seg_iterations=1,
-                                                output_dir=None):
-    #inputs need to be lists!
+def iteratively_generate_group_intensity_priors(con1_files, con1_type, orig_seg_files, orig_metric_contrast_name, atlas_file, con2_files=None,
+                                                con2_type=None, con3_files=None, con3_type=None, con4_files=None,
+                                                con4_type=None, output_dir = None, num_steps = 5, topology = 'wcs',
+                                                topology_lut_dir = None, adjust_intensity_priors = False,
+                                                compute_posterior = False, diffuse_probabilities = False,
+                                                file_suffix = None, new_atlas_file_head=None, make_new_contrast = False,
+                                                erosion_iterations=1, seg_iterations=1):
     # do stuff
     #TODO: this no longer works with the the new format for the MGDMBrainSegmentation call - with contrasts and files separated - will need to be udated IF it is useful, which it likely isn't
     #TODO: alter this so that you explicitly input up to 4 different contrasts. just makes life easier than lists of lists...?
@@ -728,38 +751,64 @@ def iteratively_generate_group_intensity_priors(input_filename_type_list, metric
     current_atlas_file = atlas_file
     if new_atlas_file_head is None:
         new_atlas_file_head = atlas_file.split('.txt')[0] + "_mod" #we cut off the .txt, and add our mod txt, we don't check if it already exists
-    if not any(isinstance(el, list) for el in input_filename_type_list): #make into list of lists
-        input_filename_type_list = [input_filename_type_list]
-    if len(metric_contrast_names) ==1: #make iterable if only a single element
-        metric_contrast_names = [metric_contrast_names]
+    if not isinstance(con1_files, list):  # make into lists if they were not
+        con1_files = [con1_files]
+    if con2_files is not None and not isinstance(con2_files, list):  # make into list
+        con2_files = [con2_files]
+    if con3_files is not None and not isinstance(con3_files, list):  # make into list
+        con3_files = [con3_files]
+    if con4_files is not None and not isinstance(con4_files, list):  # make into list
+        con4_files = [con4_files]
 
 
     MGDM_contrast_names = get_MGDM_seg_contrast_names(atlas_file) #get contrast names from old atlas file
-    for metric_contrast_name in metric_contrast_names:
-        if metric_contrast_name not in MGDM_contrast_names:
-            print("You have not chosen a valid contrast for your metric_contrast_name, please choose from: ")
-            print(", ".join(MGDM_contrast_names))
-            return
+    contrast_names = get_MGDM_seg_contrast_names(atlas_file)
+    if make_new_contrast:
+        new_contrasts = [False, False, False, False]  # list that tells us if we have new contrasts or not, so that we can loop over them later if we need to write them to file
+        if con1_type not in contrast_names:
+            new_contrasts[0] = True
+        if con2_type not in contrast_names:
+            new_contrasts[1] = True
+        if con3_type not in contrast_names:
+            new_contrasts[2] = True
+        if con4_type not in contrast_names:
+            new_contrasts[3] = True
+
+    contrast_list = [con1_type,None,None,None] #index of valid contrasts (this could be included in more complex statement above, but here for clarity
+    if con2_type is not None:
+        contrast_list[1] = con2_type
+    if con3_type is not None:
+        contrast_list[2] = con3_type
+    if con4_type is not None:
+        contrast_list[3] = con4_type
 
     # the first time, we just grab the metric data and update the priors atlas
     seg_iter_text = str(0).zfill(3)  # text for naming files etc
     print("First pass with no segmentation: " + seg_iter_text)
     print("Calculating priors from input metric files.")
 
-    for metric_contrast_name in metric_contrast_names: #need to loop extractions and priors updating over metrics
-        print("Metric type: " + metric_contrast_name)
-        metric_files = []
+    # first pass at generating the intensity priors for the input contrasts
+    for idx,val in enumerate(contrast_list): #need to loop extractions and priors updating over metrics
+        if val is not None:
+            metric_contrast_name = val
+        else:
+            return #do something here to skip this loop?
 
-        #pull out the list of metric_files for extraction
-        for filename_type in input_filename_type_list:
-            if metric_contrast_name in filename_type:
-                metric_files.append(filename_type)
+        print("Metric type: " + metric_contrast_name)
+        if idx + 1 == 1:
+            metric_files = con1_files
+        elif idx + 1 == 2:
+            metric_files = con2_files
+        elif idx + 1 == 3:
+            metric_files = con3_files
+        elif idx + 1 == 4:
+            metric_files = con4_files
 
         #new atlas file name changes with iteration AND with metric name, to make sure that we keep track of everything
         new_atlas_file = os.path.join(new_atlas_file_head + "_" + seg_iter_text + "_" + metric_contrast_name + ".txt")
         [priors_median, priors_spread] = generate_group_intensity_priors(orig_seg_files, metric_files,
-                                                                         metric_contrast_name,
-                                                                         atlas_file,
+                                                                         orig_metric_contrast_name,
+                                                                         current_atlas_file,
                                                                          erosion_iterations=erosion_iterations,
                                                                          output_dir=output_dir)
         seg_idxs = priors_median[0,:]
@@ -775,37 +824,59 @@ def iteratively_generate_group_intensity_priors(input_filename_type_list, metric
 
 
 
-    #run the segmentation for each individual
+    # now run the segmentation for each individual with this current_atlas_file
     #TODO: stupid parallelisatoin?
     new_seg_files = []
     for seg_iter in range(0, seg_iterations):
-        seg_iter_text = str(seg_iter+1).zfill(3)  # text for naming files etc?
+        seg_iter_text = str(seg_iter+1).zfill(3)  # text for naming files etc
         print("Running segmentation iteration: " + seg_iter_text)
+        new_seg_files = [] #list to contain the output segmentation files from the current step
 
         # RUN SEGMENTATION with current atlas file
-        # current_atlas_file already set from above
-        for subject_files in input_filename_type_list:
-            new_seg_file = MGDMBrainSegmentation(subject_files,output_dir=output_dir,
-                                                 atlas_file=current_atlas_file,topology_lut_dir=None)
-            new_seg_files.append(new_seg_file)
+        for idx,con1_file in enumerate(con1_files):
+            con2_file = None
+            con3_file = None
+            con4_file = None
 
+            if con2_type is not None:
+                con2_file = con2_files[idx]
+            if con3_type is not None:
+                con3_file = con3_files[idx]
+            if con4_type is not None:
+                con4_file = con4_files[idx]
+
+            MGDM_output_files = MGDMBrainSegmentation(con1_file, con1_type, con2_files=con2_file, con2_type=con2_type,
+                             con3_files=con3_file, con3_type=con3_type, con4_files=con4_file, con4_type=con4_type,
+                             output_dir = output_dir , num_steps = num_steps , topology = topology , atlas_file=current_atlas_file,
+                             topology_lut_dir = topology_lut_dir , adjust_intensity_priors = adjust_intensity_priors , compute_posterior = compute_posterior ,
+                             diffuse_probabilities = diffuse_probabilities , file_suffix = file_suffix)
+            new_seg_files.append(MGDM_output_files[0])
+
+        # TODO: fix from here on in, it does not currently work
         # RUN EXTRACTION FOR EACH METRIC on output from segmentation, UPDATE atlas priors
         print("Metric extraction from new segmentation")
-        for metric_contrast_name in metric_contrast_names:  # need to loop extractions and priors updating over metrics
-            print("Metric type: " + metric_contrast_name)
-            metric_files = []
 
-            # pull out the list of metric_files for extraction
-            for filename_type in input_filename_type_list:
-                if metric_contrast_name in filename_type:
-                    metric_files.append(filename_type)
+        for idx, val in enumerate(contrast_list):  # need to loop extractions and priors, updating over metrics
+            if val is not None:
+                metric_contrast_name = val
+            else:
+                return  # do something here to skip this loop?
+
+            print("Metric type: " + metric_contrast_name)
+            if idx + 1 == 1:
+                metric_files = con1_files
+            elif idx + 1 == 2:
+                metric_files = con2_files
+            elif idx + 1 == 3:
+                metric_files = con3_files
+            elif idx + 1 == 4:
+                metric_files = con4_files
 
             # new atlas file name changes with iteration AND with metric name, to make sure that we keep track of everything
             new_atlas_file = os.path.join(new_atlas_file_head + "_" + seg_iter_text + "_" + metric_contrast_name + ".txt")
             [priors_median, priors_spread] = generate_group_intensity_priors(new_seg_files, metric_files,
-                                                                             metric_contrast_name,
-                                                                             atlas_file,
-                                                                             new_atlas_file_head,
+                                                                             orig_metric_contrast_name,
+                                                                             current_atlas_file,
                                                                              erosion_iterations=erosion_iterations,
                                                                              output_dir=output_dir)
             seg_idxs = priors_median[0, :]
@@ -814,6 +885,8 @@ def iteratively_generate_group_intensity_priors(input_filename_type_list, metric
             write_priors_to_atlas(grp_median, grp_spread, current_atlas_file, new_atlas_file, metric_contrast_name)
             current_atlas_file = new_atlas_file  # update the current atlas file, so that we can use it for subsequent extractions
 
-            # stack to 3d
-            iter_Ss_priors_median = np.dstack((iter_Ss_priors_median, priors_median))
-            iter_Ss_priors_spread = np.dstack((iter_Ss_priors_spread, priors_spread))
+            # combine the individual output into a 2d and then 3d stack (with iterations >0) so that we can keep track of changes
+            # it will be stacked for each metric if there are multiple metrics, so not easy to see :-/
+            iter_Ss_priors_median = priors_median
+            iter_Ss_priors_spread = priors_spread
+    return current_atlas_file
