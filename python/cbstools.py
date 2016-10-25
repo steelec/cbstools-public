@@ -852,7 +852,6 @@ def iteratively_generate_group_intensity_priors(con1_files, con1_type, orig_seg_
                              diffuse_probabilities = diffuse_probabilities , file_suffix = file_suffix)
             new_seg_files.append(MGDM_output_files[0])
 
-        # TODO: fix from here on in, it does not currently work
         # RUN EXTRACTION FOR EACH METRIC on output from segmentation, UPDATE atlas priors
         print("Metric extraction from new segmentation")
 
