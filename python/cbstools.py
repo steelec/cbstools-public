@@ -11,7 +11,7 @@ from os.path import sep as pathsep
 import sys
 
 #TODO: hardcoded for now, make relative before release
-sys.path.append('/home/chris/Documents/code/python/cbstools-python/cbstoolsjcc-3.1.0.1-py2.7-linux-x86_64.egg')
+sys.path.append('/home/chris/Documents/code/pyProjects/cbstools-public/python/cbstoolsjcc-3.1.0.1-py2.7-linux-x86_64.egg')
 import cbstoolsjcc as cj
 
 
@@ -74,174 +74,7 @@ def flip_affine_data_orientation(d,a,flipLR = False,flipAP = False, flipIS = Fal
         a[3,3] = a[3,3]*-1
     return d,a
 
-def MGDMBrainSegmentation(input_filename_type_list, output_dir = None, num_steps = 5, atlas_file=None,
-                          topology_lut_dir = None):
-    """
-    Perform MGDM segmentation
-    :param input_filename_type_list: list of [[fname1,type1],[fname2,type2],...] - for a maximum of 4 inputs
-    :param output_dir: full path to the output directory
-    :param num_steps: number of steps for (default 5, set to 0 for testing)
-    :param atlas_file: full path to the atlas file, default set in defaults.py
-    :param topology_lut_dir: full path to the directory with the topology files, default set in defaults.py
-    :return:
-    """
-
-    from nibabel.orientations import io_orientation, inv_ornt_aff, apply_orientation, ornt_transform
-    import os
-
-    print("Thank you for choosing the MGDM segmentation from the cbstools for your brain segmentation needs")
-    print("Sit back and relax, let the magic of algorithms happen...")
-    print("")
-    if output_dir is None:
-        output_dir = os.path.dirname(input_filename_type_list[0][0])
-    if atlas_file is None:
-        atlas = os.path.join(ATLAS_DIR,'brain-atlas-3.0.3.txt')
-    else:
-        atlas = atlas_file
-
-    if topology_lut_dir is None:
-        topology_lut_dir = TOPOLOGY_LUT_DIR  # grabbing this from the default settings in defaults.py
-    else:
-        if not(topology_lut_dir[-1] == os.sep): #if we don't end in a path sep, we need to make sure that we add it
-            topology_lut_dir += os.sep
-
-    print("Atlas file: " + atlas)
-    print("Topology LUT durectory: " + topology_lut_dir)
-    print("")
-
-    if not any(isinstance(el, list) for el in input_filename_type_list): #make into list of lists
-        input_filename_type_list = [input_filename_type_list]
-
-    #now we setup the mgdm specfic settings
-    mgdm = cj.BrainMgdmMultiSegmentation2()
-    mgdm.setAtlasFile(atlas)
-    mgdm.setTopologyLUTdirectory(topology_lut_dir)
-
-    mgdm.setOutputImages('segmentation')
-    # --> mgdm.setOrientations(mgdm.AXIAL, mgdm.R2L, mgdm.A2P, mgdm.I2S) # this is the default for MGDM, <--
-    # mgdm.setOrientations(mgdm.AXIAL, mgdm.L2R, mgdm.P2A, mgdm.I2S)  #LR,PA,IS is always how they are returned from nibabel
-    mgdm.setAdjustIntensityPriors(False)  # default is True
-    mgdm.setComputePosterior(False)
-    mgdm.setDiffuseProbabilities(False)
-    mgdm.setSteps(num_steps)
-    mgdm.setTopology('wcs')  # {'wcs','no'} no=off for testing, wcs=default
-    for idx,con in enumerate(input_filename_type_list):
-        print("Input files and filetypes:")
-        print("  " + str(idx+1) + " "),
-        print(con)
-        #flipLR = False
-        #flipAP = False
-        #flipIS = False
-
-
-        fname = con[0]
-        type = con[1]
-        d,d_aff,d_head = niiLoad(fname,return_header=True)
-
-        ## usage example in the proc_file function of : https://github.com/nipy/nibabel/blob/master/bin/parrec2nii
-        ornt_orig = io_orientation(d_aff)
-        ornt_mgdm = io_orientation(np.diag([-1, -1, 1, 1]).dot(d_aff))  # -1 -1 1 LPS (mgdm default); 1 1 1 is RAS
-        ornt_chng = ornt_transform(ornt_mgdm, ornt_orig)  # to get from MGDM to our original input
-
-
-        # convert orientation information to mgdm slice and orientation info
-        aff_orients,aff_slc = get_affine_orientation_slice(d_aff)
-        print("data orientation: " + str(aff_orients)),
-        print("slice settings: " + aff_slc)
-        print("mgdm orientation: " + str(ornt_mgdm))
-        print("data orientation: " + str(ornt_orig))
-
-        if aff_slc == "AXIAL":
-            SLC=mgdm.AXIAL
-        elif aff_slc == "SAGITTAL":
-            SLC=mgdm.SAGITTAL
-        else:
-            SLC=mgdm.CORONAL
-        for aff_orient in aff_orients: #TODO: if anything is different from the default MGDM settings, we need to flip axes of the data at the end
-            if aff_orient == "L":
-                LR=mgdm.R2L
-            elif aff_orient == "R":
-                LR = mgdm.L2R
-               # flipLR = True
-            elif aff_orient == "A":
-                AP = mgdm.P2A
-                #flipAP = True
-            elif aff_orient == "P":
-                AP = mgdm.A2P
-            elif aff_orient == "I":
-                IS = mgdm.S2I
-                #flipIS = True
-            elif aff_orient == "S":
-                IS = mgdm.I2S
-        mgdm.setOrientations(SLC, LR, AP, IS)  #L2R,P2A,I2S is nibabel default (i.e., RAS)
-
-        if idx+1 == 1:
-            # we use the first image to set the dimensions and resolutions
-            res = d_head.get_zooms()
-            res = [a1.item() for a1 in res]  # cast to regular python float type
-            mgdm.setDimensions(d.shape[0], d.shape[1], d.shape[2])
-            mgdm.setResolutions(res[0], res[1], res[2])
-
-            # keep the shape and affine from the first image for saving
-            d_shape = np.array(d.shape)
-            out_root_fname = os.path.basename(fname)[0:os.path.basename(fname).find('.')] #assumes no periods in filename, :-/
-
-            mgdm.setContrastImage1(cj.JArray('float')((d.flatten('F')).astype(float)))
-            mgdm.setContrastType1(type)
-        elif idx+1 == 2:
-            mgdm.setContrastImage2(cj.JArray('float')((d.flatten('F')).astype(float)))
-            mgdm.setContrastType2(type)
-        elif idx + 1 == 3:
-            mgdm.setContrastImage3(cj.JArray('float')((d.flatten('F')).astype(float)))
-            mgdm.setContrastType3(type)
-        elif idx + 1 == 4:
-            mgdm.setContrastImage4(cj.JArray('float')((d.flatten('F')).astype(float)))
-            mgdm.setContrastType4(type)
-    try:
-        print("Executing MGDM on your inputs")
-        print("Don't worry, the magic is happening!")
-        mgdm.execute()
-        print(os.path.join(output_dir, out_root_fname + '_seg_cjs.nii.gz'))
-
-
-        # outputs
-        # reshape fortran stype to convert back to the format the nibabel likes
-        seg_im = np.reshape(np.array(mgdm.getSegmentedBrainImage(), dtype=np.uint32), d_shape,'F')
-        lbl_im = np.reshape(np.array(mgdm.getPosteriorMaximumLabels4D(), dtype=np.uint32), d_shape, 'F')
-        ids_im = np.reshape(np.array(mgdm.getSegmentedIdsImage(), dtype=np.uint32), d_shape, 'F')
-
-        # fix orientation back to the input orientation :-/ not really working
-        # seg_im = apply_orientation(seg_im, ornt_chng) # this takes care of the orientations between mipav and input
-        # lbl_im = apply_orientation(lbl_im, ornt_chng) # TODO: fix the origin point offset?, 2x check possible RL flip
-        # ids_im = apply_orientation(ids_im, ornt_chng) # alternative: register? https://github.com/pyimreg
-                                                      #
-
-        # save
-        seg_file = os.path.join(output_dir, out_root_fname + '_seg_cjs.nii.gz')
-        lbl_file = os.path.join(output_dir, out_root_fname + '_lbl_cjs.nii.gz')
-        ids_file = os.path.join(output_dir, out_root_fname + '_ids_cjs.nii.gz')
-
-        ## this will work, but the solution with nibabel.orientations is much cleaner
-        # if our settings were not the same as MGDM likes, we need to flip the relevant settings:
-        #d_aff_new = flip_affine_orientation(d_aff, flipLR=flipLR, flipAP=flipAP, flipIS=flipIS)
-
-        d_head['data_type'] = np.array(32).astype('uint32') #convert the header as well
-        d_head['cal_max'] = np.max(seg_im)  #max for display
-        niiSave(seg_file, seg_im, d_aff, header=d_head, data_type='uint32')
-        d_head['cal_max'] = np.max(lbl_im)
-        niiSave(lbl_file, lbl_im, d_aff, header=d_head, data_type='uint32')
-        d_head['cal_max'] = np.max(ids_im)  # convert the header as well
-        niiSave(ids_file, ids_im, d_aff, header=d_head, data_type='uint32')
-        print("Data stored in: " + output_dir)
-    except:
-        print("--- MGDM failed. Go cry. ---")
-        return
-    print("Execution completed")
-
-    return seg_im,d_aff,d_head
-
-
-def MGDMBrainSegmentation_v2(con1_files, con1_type, con2_files=None, con2_type=None,
+def MGDMBrainSegmentation(con1_files, con1_type, con2_files=None, con2_type=None,
                              con3_files=None, con3_type=None, con4_files=None, con4_type=None,
                              output_dir = None, num_steps = 5, topology = 'wcs', atlas_file=None,
                              topology_lut_dir = None, adjust_intensity_priors = False, compute_posterior = False,
@@ -315,13 +148,12 @@ def MGDMBrainSegmentation_v2(con1_files, con1_type, con2_files=None, con2_type=N
     mgdm.setTopologyLUTdirectory(topology_lut_dir)
 
     mgdm.setOutputImages('segmentation')
-    # --> mgdm.setOrientations(mgdm.AXIAL, mgdm.R2L, mgdm.A2P, mgdm.I2S) # this is the default for MGDM, <--
-    # mgdm.setOrientations(mgdm.AXIAL, mgdm.L2R, mgdm.P2A, mgdm.I2S)  #LR,PA,IS is always how they are returned from nibabel
     mgdm.setAdjustIntensityPriors(adjust_intensity_priors)  # default is True
     mgdm.setComputePosterior(compute_posterior)
     mgdm.setDiffuseProbabilities(diffuse_probabilities)
     mgdm.setSteps(num_steps)
     mgdm.setTopology(topology)  # {'wcs','no'} no=off for testing, wcs=default
+    # --> mgdm.setOrientations(mgdm.AXIAL, mgdm.R2L, mgdm.A2P, mgdm.I2S) # this is the default for MGDM, <--
 
     for idx,con1 in enumerate(con1_files):
         print("Input files and filetypes:")
@@ -332,32 +164,32 @@ def MGDMBrainSegmentation_v2(con1_files, con1_type, con2_files=None, con2_type=N
         d,d_aff,d_head = niiLoad(fname,return_header=True)
 
         # convert orientation information to mgdm slice and orientation info
-        # aff_orients,aff_slc = get_affine_orientation_slice(d_aff)
-        # print("data orientation: " + str(aff_orients)),
-        # print("slice settings: " + aff_slc)
-        # if aff_slc == "AXIAL":
-        #     SLC=mgdm.AXIAL
-        # elif aff_slc == "SAGITTAL":
-        #     SLC=mgdm.SAGITTAL
-        # else:
-        #     SLC=mgdm.CORONAL
-        # for aff_orient in aff_orients: #TODO: if anything is different from the default MGDM settings, we need to flip axes of the data at the end
-        #     if aff_orient == "L":
-        #         LR=mgdm.R2L
-        #     elif aff_orient == "R":
-        #         LR = mgdm.L2R
-        #        # flipLR = True
-        #     elif aff_orient == "A":
-        #         AP = mgdm.P2A
-        #         #flipAP = True
-        #     elif aff_orient == "P":
-        #         AP = mgdm.A2P
-        #     elif aff_orient == "I":
-        #         IS = mgdm.S2I
-        #         #flipIS = True
-        #     elif aff_orient == "S":
-        #         IS = mgdm.I2S
-        #mgdm.setOrientations(SLC, LR, AP, IS)  #L2R,P2A,I2S is nibabel default (i.e., RAS)
+        aff_orients,aff_slc = get_affine_orientation_slice(d_aff)
+        print("data orientation: " + str(aff_orients)),
+        print("slice settings: " + aff_slc)
+        if aff_slc == "AXIAL":
+            SLC=mgdm.AXIAL
+        elif aff_slc == "SAGITTAL":
+            SLC=mgdm.SAGITTAL
+        else:
+            SLC=mgdm.CORONAL
+        for aff_orient in aff_orients:
+            if aff_orient == "L":
+                LR=mgdm.R2L
+            elif aff_orient == "R":
+                LR = mgdm.L2R
+               # flipLR = True
+            elif aff_orient == "A":
+                AP = mgdm.P2A
+                #flipAP = True
+            elif aff_orient == "P":
+                AP = mgdm.A2P
+            elif aff_orient == "I":
+                IS = mgdm.S2I
+                #flipIS = True
+            elif aff_orient == "S":
+                IS = mgdm.I2S
+        mgdm.setOrientations(SLC, LR, AP, IS)  #L2R,P2A,I2S is nibabel default (i.e., RAS)
 
         # we use the first image to set the dimensions and resolutions
         res = d_head.get_zooms()
