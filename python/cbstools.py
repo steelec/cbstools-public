@@ -833,24 +833,24 @@ def iteratively_generate_group_intensity_priors(con1_files, con1_type, orig_seg_
         new_seg_files = [] #list to contain the output segmentation files from the current step
 
         # RUN SEGMENTATION with current atlas file
-        for idx,con1_file in enumerate(con1_files):
-            con2_file = None
-            con3_file = None
-            con4_file = None
+        # for idx,con1_file in enumerate(con1_files):
+        #     con2_file = None
+        #     con3_file = None
+        #     con4_file = None
+        #
+        #     if con2_type is not None:
+        #         con2_file = con2_files[idx]
+        #     if con3_type is not None:
+        #         con3_file = con3_files[idx]
+        #     if con4_type is not None:
+        #         con4_file = con4_files[idx]
 
-            if con2_type is not None:
-                con2_file = con2_files[idx]
-            if con3_type is not None:
-                con3_file = con3_files[idx]
-            if con4_type is not None:
-                con4_file = con4_files[idx]
-
-            MGDM_output_files = MGDMBrainSegmentation(con1_file, con1_type, con2_files=con2_file, con2_type=con2_type,
-                             con3_files=con3_file, con3_type=con3_type, con4_files=con4_file, con4_type=con4_type,
-                             output_dir = output_dir , num_steps = num_steps , topology = topology , atlas_file=current_atlas_file,
-                             topology_lut_dir = topology_lut_dir , adjust_intensity_priors = adjust_intensity_priors , compute_posterior = compute_posterior ,
-                             diffuse_probabilities = diffuse_probabilities , file_suffix = file_suffix)
-            new_seg_files.append(MGDM_output_files[0])
+        MGDM_output_files = MGDMBrainSegmentation(con1_files, con1_type, con2_files=con2_files, con2_type=con2_type,
+                         con3_files=con3_files, con3_type=con3_type, con4_files=con4_files, con4_type=con4_type,
+                         output_dir = output_dir , num_steps = num_steps , topology = topology , atlas_file=current_atlas_file,
+                         topology_lut_dir = topology_lut_dir , adjust_intensity_priors = adjust_intensity_priors , compute_posterior = compute_posterior ,
+                         diffuse_probabilities = diffuse_probabilities , file_suffix = file_suffix)
+        new_seg_files = MGDM_output_files[0] #segmentations are passed first
 
         # RUN EXTRACTION FOR EACH METRIC on output from segmentation, UPDATE atlas priors
         print("Metric extraction from new segmentation")
