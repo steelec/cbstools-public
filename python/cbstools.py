@@ -825,14 +825,13 @@ def iteratively_generate_group_intensity_priors(con1_files, con1_type, orig_seg_
 
 
     # now run the segmentation for each individual with this current_atlas_file
-    #TODO: stupid parallelisatoin?
-    new_seg_files = []
+    #new_seg_files = []
     for seg_iter in range(0, seg_iterations):
         seg_iter_text = str(seg_iter+1).zfill(3)  # text for naming files etc
         print("Running segmentation iteration: " + seg_iter_text)
         new_seg_files = [] #list to contain the output segmentation files from the current step
 
-        # RUN SEGMENTATION with current atlas file
+
         # for idx,con1_file in enumerate(con1_files):
         #     con2_file = None
         #     con3_file = None
@@ -845,6 +844,9 @@ def iteratively_generate_group_intensity_priors(con1_files, con1_type, orig_seg_
         #     if con4_type is not None:
         #         con4_file = con4_files[idx]
 
+        # RUN SEGMENTATION with current atlas file
+        # TODO: stupid parallelisation?
+        # could use the code above to submit multiple jobs with individuals 
         MGDM_output_files = MGDMBrainSegmentation(con1_files, con1_type, con2_files=con2_files, con2_type=con2_type,
                          con3_files=con3_files, con3_type=con3_type, con4_files=con4_files, con4_type=con4_type,
                          output_dir = output_dir , num_steps = num_steps , topology = topology , atlas_file=current_atlas_file,
