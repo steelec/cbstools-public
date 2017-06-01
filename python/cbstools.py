@@ -93,18 +93,17 @@ def MGDMBrainSegmentation(con1_files, con1_type, con2_files=None, con2_type=None
     :param con4_files:              List of files for contrast 4, optional, must be matched to con1_files
     :param con4_type:               Contrast 4 type
     :param output_dir:              Directory to place output, defaults to input directory if = None
-    :param num_steps:               Number of steps for MGDM, default = 5, set to 0 for quicker testing (but worse quality segmentation)
+    :param num_steps:               Number of steps for MGDM, default = 5, set to 0 for quick testing of registration of priors (not true segmentation)
     :param topology:                Topology setting {'wcs', 'no'} ('no' for no topology)
     :param atlas_file:              Atlas file full path and filename
     :param topology_lut_dir:        Directory for topology files
     :param adjust_intensity_priors: Adjust intensity priors based on dataset: True/False
-    :param compute_posterior:       Copmute posterior: True/False
+    :param compute_posterior:       Compute posterior: True/False
     :param diffuse_probabilities:   Compute diffuse probabilities: True/False
     :param file_suffix:             Distinguishing text to add to the end of the filename
     :return:
     """
 
-    #from nibabel.orientations import io_orientation, inv_ornt_aff, apply_orientation, ornt_transform
     import os
     print("Thank you for choosing the MGDM segmentation from the cbstools for your brain segmentation needs")
     print("Sit back and relax, let the magic of algorithms happen...")
@@ -173,7 +172,7 @@ def MGDMBrainSegmentation(con1_files, con1_type, con2_files=None, con2_type=None
     mgdm.setDiffuseProbabilities(diffuse_probabilities)
     mgdm.setSteps(num_steps)
     mgdm.setTopology(topology)  # {'wcs','no'} no=off for testing, wcs=default
-    # --> mgdm.setOrientations(mgdm.AXIAL, mgdm.R2L, mgdm.A2P, mgdm.I2S) # this is the default for MGDM, <--
+    # --> mgdm.setOrientations(mgdm.AXIAL, mgdm.R2L, mgdm.A2P, mgdm.I2S) # this is the default of the atlas used for MGDM, <--
 
     for idx,con1 in enumerate(con1_files):
         print("Input files and filetypes:")
@@ -301,7 +300,6 @@ def compare_atlas_segs_priors(seg_file_orig,seg_file_new,atlas_file_orig=None,at
     #TODO: make sure that all indices are in both segs? or just base it all on the gold standard?
 
     for struc_idx in lut1.Index:
-#    for struc_idx in idxs1:
         if not(struc_idx == background_idx):
             print("Structure index: {0}, {1}").format(struc_idx,lut1.index[lut1.Index==struc_idx][0])
             bin_vol = np.zeros_like(d1)
@@ -457,9 +455,9 @@ def extract_lut_priors_from_atlas(atlas_file,contrast_name):
 
     fp = open(atlas_file)
     for i, line in enumerate(fp):
-        if "Structures:" in line:  # this is the beginning of the LUT
+        if "Structures:" in line:  # this is the beginning of the LUT, grab the number of items in the atlas from this line
             lut_idx = i
-            lut_rows = map(int, [line.split()[1]])[0] + 1 #+1 to ensure that the last line is included
+            lut_rows = map(int, [line.split()[1]])[0] + 1 # g+1 to ensure that the last line is included
         if "Intensity Prior:" in line:
             if contrast_name in line:
                 con_idx = i
@@ -487,6 +485,7 @@ def write_priors_to_atlas(prior_medians,prior_quart_diffs,atlas_file,new_atlas_f
     :param atlas_file:              full path to original atlas file
     :param new_atlas_file:          full path to new atlas file to be written to
     :param metric_contrast_name:    name of MGDM metric contrast from atlas_file
+    :return: fp_new.name            name of newly written atlas file
     """
 
     import pandas as pd
@@ -554,7 +553,7 @@ def filter_sigmoid(d, x0=0.002, slope=0.0005, output_fname=None):
     :return:
     """
     import numpy as np
-    from scipy.stats import linregress
+
     return_nii_parts = False
     if not isinstance(d, (np.ndarray, np.generic) ):
         try:
@@ -563,17 +562,6 @@ def filter_sigmoid(d, x0=0.002, slope=0.0005, output_fname=None):
         except:
             print("niiLoad tried to load this is a file and failed, are you calling it properly?")
             return
-    # if x0 is None: #we can see what we can do to generate the mean , not a great solution TODO: improve x0,slope calc
-    #     d_subset = d[d>0]
-    #     d_subset = d_subset[ np.where(np.logical_and(d_subset < np.percentile(d_subset, 95),d_subset > np.percentile(d_subset,75)))]
-    #     x0 = np.median(d_subset)
-    #     print("x0 calculated from the data: %.6F") %x0
-    # if slope is None:
-    #     x=d_subset[d_subset>x0]
-    #     y=d_subset[d_subset<x0]
-    #     print((linregress(x,y)))
-    #     slope = np.abs(linregress(x,y)[0])
-    #     print("Slope calculated from the data: %.6F") %slope
     if output_fname is not None and return_nii_parts:
         niiSave(output_fname,d,a,h)
     if return_nii_parts:
@@ -588,7 +576,7 @@ def niiLoad(nii_fname,return_header=False):
     :param nii_fname:
     :param return_affine:
     :param return_header:
-    :return:
+    :return: image data, affine, and header (as requested)
     """
     import nibabel as nb
     img=nb.load(nii_fname)
@@ -607,7 +595,7 @@ def niiSave(nii_fname,d,affine,header=None,data_type=None):
     :param affine:
     :param header:      text of numpy data_type (e.g. 'uint32','float32')
     :param data_type:
-    :return:
+    :return: nii_fname: filename that was written to disk
     """
     import nibabel as nb
 
@@ -734,6 +722,26 @@ def generate_group_intensity_priors(orig_seg_files,metric_files,orig_metric_cont
         print("")
     return all_Ss_priors_median, all_Ss_priors_spread
 
+def limit_to_robust_range(d,min_value = None, max_value = None, lower_percentile = 0.1, upper_percentile=99.9):
+    """
+    Limits input data to robust range as specified by min_value, lower_percentile, and upper_percentile.
+    May be useful after bias correction or noise correction to ensure that the histogram is not weighted by erroneous signal
+    :param d:                   input data
+    :param min_value:           values less than this will be set to this; if None, not considered
+    :param lower_percentile:    values less than this percentile from data will be set to this
+    :param upper_percentile:    values greater than this percentile from data will be set to this
+    :return: limited data
+    """
+    if min_value is not None:
+        d[d<min_value] = min_value
+    if max_value is not None:
+        d[d>max_value] = max_value
+    minimum=np.percentile(d,lower_percentile)
+    d[d<minimum] = minimum
+    maximum=np.percentile(d,upper_percentile)
+    d[d>maximum] = maximum
+    print ("lower: {0}\t upper: {1}").format(minimum,maximum)
+    return d
 
 def iteratively_generate_group_intensity_priors(con1_files, con1_type, orig_seg_files, orig_metric_contrast_name, atlas_file, con2_files=None,
                                                 con2_type=None, con3_files=None, con3_type=None, con4_files=None,
@@ -742,10 +750,9 @@ def iteratively_generate_group_intensity_priors(con1_files, con1_type, orig_seg_
                                                 compute_posterior = False, diffuse_probabilities = False,
                                                 file_suffix = None, new_atlas_file_head=None, make_new_contrast = False,
                                                 erosion_iterations=1, seg_iterations=1):
-    # do stuff
-    #TODO: this no longer works with the the new format for the MGDMBrainSegmentation call - with contrasts and files separated - will need to be udated IF it is useful, which it likely isn't
-    #TODO: alter this so that you explicitly input up to 4 different contrasts. just makes life easier than lists of lists...?
-
+    # from multiprocessing import pool
+    # mgdm_pool = pool.Pool(processes = num_parallel_jobs)
+    # mgdm_pool.map(COMMAND, INPUT)
     import numpy as np
     import os
     current_atlas_file = atlas_file
